@@ -3,10 +3,14 @@ import shutil
 import sys
 import traceback
 
-import dissect
 from dissect.target import Target
 from dissect.target.exceptions import UnsupportedPluginError
 from flow.record.adapter.csvfile import CsvfileWriter
+from dissect.target.helpers.record import TargetRecordDescriptor
+
+from dissect.target.tools.info import (
+    get_target_info
+)
 
 from utils import TxtFile
 from utils.cli import logger
@@ -14,6 +18,7 @@ from utils.cli import logger
 class HostAnalyzer:
     def __init__(self, image_path: str, overwrite: bool = False):
         super(HostAnalyzer, self).__init__()
+        self.path = image_path
         self.__target = Target.open(image_path)
         self.__target.apply()
         self.__overwrite = overwrite
@@ -32,6 +37,7 @@ class HostAnalyzer:
             "prefetch",
             "runkeys",
             "usb",
+            "users",
             "userassist",
             "firewall",
             "adpolicy",
@@ -56,18 +62,6 @@ class HostAnalyzer:
             ##"wer", # https://github.com/fox-it/acquire/pull/66
             ##"usnjrnl" # takes a lot of time
         ]
-
-    def write_hostinfo(self):
-        usernames = [f"{u.domain or u.hostname}\\{u.name}" for u in self.__target.users()]
-        TxtFile(self.__dst_dir, "hostinfo") \
-            .store(f"hostname     = {self.__target.hostname}{os.linesep}") \
-            .store(f"domain       = {self.__target.domain}{os.linesep}") \
-            .store(f"version      = {self.__target.version}{os.linesep}") \
-            .store(f"install_date = {self.__target.install_date}{os.linesep}") \
-            .store(f"language     = {self.__target.language}{os.linesep}") \
-            .store(f"timezone     = {self.__target.timezone}{os.linesep}") \
-            .store(f"ips          = {self.__target.ips}{os.linesep}") \
-            .store(f"users        = {usernames}{os.linesep}")
 
     def invoke_plugins(self):
         for plugin in self.__PLUGINS:
@@ -116,3 +110,35 @@ class HostAnalyzer:
                 sys.exit(1)
         os.makedirs(dst)
         return dst
+          
+    def write_target_info(self):
+
+        # changed "ips" type from "net.ipaddress[]" to "strings[]" from original dissect InfoRecord
+        InfoRecord = TargetRecordDescriptor(
+            "target/info",
+            [
+                ("datetime", "last_activity"),
+                ("datetime", "install_date"),
+                ("string[]", "ips"),
+                ("string", "os_family"),
+                ("string", "os_version"),
+                ("string", "architecture"),
+                ("string[]", "language"),
+                ("string", "timezone"),
+                ("string[]", "disks"),
+                ("string[]", "volumes"),
+                ("string[]", "children"),
+            ],
+        )
+          
+        try:
+            record = InfoRecord(**get_target_info(self.__target), _target=self.__target)
+            filename = "hostinfo.csv"
+            writer = CsvfileWriter(os.path.join(self.__dst_dir, filename),
+                               exclude=["_generated", "_source", "_classification", "_version"])
+            writer.write(record)
+
+        except Exception as e:
+            logger().error(e)
+            logger().debug("", exc_info=e)
+

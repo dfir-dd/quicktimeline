@@ -8,7 +8,7 @@ def main():
     args = utils.cli.arguments()
 
     analyzer = HostAnalyzer(args.image_path, overwrite=args.overwrite)
-    analyzer.write_hostinfo()
+    analyzer.write_target_info()
     analyzer.invoke_plugins()
 
 
